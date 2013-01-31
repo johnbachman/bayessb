@@ -225,6 +225,7 @@ class MCMC(object):
         # initialize to zeros so we can see where there were failures
         self.hessians = np.zeros((num_hessians,
                                   self.num_estimate, self.num_estimate))
+        self.accept_error = np.zeros(self.options.nsteps) # TODO
 
     def init_solver(self):
         """Initialize solver from model and tspan."""
@@ -277,20 +278,37 @@ class MCMC(object):
                 # Calculate the acceptance rate only over the recent steps
                 # unless we haven't done enough steps yet
                 window = 200. # FIXME FIXME make this into an option
+                integral_gain = 1
+
                 if self.iter < window:
                     accept_rate = float(self.acceptance) / (self.iter + 1)
+                    cumulative_accept_error = np.sum(self.accept_error)
                 else:
                     accept_rate = np.sum(self.accepts[(self.iter - window): 
                                             self.iter]) / float(window)
+                    cumulative_accept_error = \
+                        np.sum(self.accept_error[(self.iter - window):self.iter])
 
-                if accept_rate < self.options.accept_rate_target:
-                    if self.sig_value > self.options.sigma_min:
-                        #self.sig_value -= self.options.sigma_step
-                        self.sig_value *= self.options.sigma_step
+                # Record the current deviation from the target acceptance rate
+                # If the current accept rate is too low, the accept_error will be
+                # negative, so that when added to the sigma value, it will
+                # reduce the step size
+                self.accept_error[self.iter] = \
+                    accept_rate - self.options.accept_rate_target
+
+                # Multiply the cumulative error by the integral gain
+                integral_correction = integral_gain * cumulative_accept_error
+
+                # If the acceptance rate has been zero for the last #window steps,
+                # the max on cumulative error will be (i.e., 200 * 0.3 * 0.1 = 6.66)
+                new_sigma = self.sig_value + integral_correction
+
+                if new_sigma > self.options.sigma_max:
+                    self.sig_value = self.options.sigma_max
+                elif new_sigma < self.options.sigma_min:
+                    self.sig_value = self.options.sigma_min
                 else:
-                    if self.sig_value < self.options.sigma_max:
-                        #self.sig_value += self.options.sigma_step
-                        self.sig_value *= (1. / self.options.sigma_step)
+                    self.sig_value = new_sigma
 
             if self.iter < self.options.anneal_length:
                 self.T = 1 + (self.options.T_init - 1) * math.e ** (-self.iter * self.T_decay)
