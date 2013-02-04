@@ -278,7 +278,8 @@ class MCMC(object):
                 # Calculate the acceptance rate only over the recent steps
                 # unless we haven't done enough steps yet
                 window = 200. # FIXME FIXME make this into an option
-                integral_gain = 1
+                integral_gain = 0.1
+                proportional_gain = 5
 
                 if self.iter < window:
                     accept_rate = float(self.acceptance) / (self.iter + 1)
@@ -298,10 +299,15 @@ class MCMC(object):
 
                 # Multiply the cumulative error by the integral gain
                 integral_correction = integral_gain * cumulative_accept_error
+                
+                # Mutiply the current error by the proportional gain
+                proportional_correction = proportional_gain * \
+                                          self.accept_error[self.iter]
 
                 # If the acceptance rate has been zero for the last #window steps,
                 # the max on cumulative error will be (i.e., 200 * 0.3 * 0.1 = 6.66)
-                new_sigma = self.sig_value + integral_correction
+                new_sigma = self.sig_value + integral_correction + \
+                            proportional_correction
 
                 if new_sigma > self.options.sigma_max:
                     self.sig_value = self.options.sigma_max
