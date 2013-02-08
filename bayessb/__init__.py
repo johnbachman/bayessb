@@ -277,22 +277,30 @@ class MCMC(object):
 
                 # Calculate the acceptance rate only over the recent steps
                 # unless we haven't done enough steps yet
-                window = 200. # FIXME FIXME make this into an option
-                integral_gain = 0.1
-                proportional_gain = 5
+                window = self.options.accept_window
+                integral_gain = 5 
+                proportional_gain = 0
 
+                # If we haven't yet done #window steps, then we average over
+                # the steps that we have
                 if self.iter < window:
                     accept_rate = float(self.acceptance) / (self.iter + 1)
-                    cumulative_accept_error = np.sum(self.accept_error)
+                    cumulative_accept_error = accept_rate
+                    #cumulative_accept_error = np.sum(self.accept_error) / \
+                    #                          self.iter
+                # Otherwise, we sum over our last #window steps, dividing
+                # by the number of steps
                 else:
                     accept_rate = np.sum(self.accepts[(self.iter - window): 
                                             self.iter]) / float(window)
                     cumulative_accept_error = \
-                        np.sum(self.accept_error[(self.iter - window):self.iter])
+                        np.sum(self.accept_error[(self.iter - window):
+                                                 self.iter]) / \
+                        self.options.accept_window
 
                 # Record the current deviation from the target acceptance rate
-                # If the current accept rate is too low, the accept_error will be
-                # negative, so that when added to the sigma value, it will
+                # If the current accept rate is too low, the accept_error will
+                # be negative, so that when added to the sigma value, it will
                 # reduce the step size
                 self.accept_error[self.iter] = \
                     accept_rate - self.options.accept_rate_target
@@ -304,10 +312,16 @@ class MCMC(object):
                 proportional_correction = proportional_gain * \
                                           self.accept_error[self.iter]
 
-                # If the acceptance rate has been zero for the last #window steps,
-                # the max on cumulative error will be (i.e., 200 * 0.3 * 0.1 = 6.66)
-                new_sigma = self.sig_value + integral_correction + \
-                            proportional_correction
+                # Since the error is normalized by the number of steps, the
+                # maximum possible error due to low acceptance rate is
+                # precisely equal to the accept_rate_target.
+                # This allows us to set the scale of the baseline step size.
+                # That is, if we have accepted no steps at all, then our
+                # baseline should be accept_rate_target - the error (or plus,
+                # since it will be negative), plus the minimum step size.
+                new_sigma = integral_gain * \
+                            (self.options.accept_rate_target +
+                             integral_correction)
 
                 if new_sigma > self.options.sigma_max:
                     self.sig_value = self.options.sigma_max
@@ -317,7 +331,8 @@ class MCMC(object):
                     self.sig_value = new_sigma
 
             if self.iter < self.options.anneal_length:
-                self.T = 1 + (self.options.T_init - 1) * math.e ** (-self.iter * self.T_decay)
+                self.T = 1 + (self.options.T_init - 1) * \
+                         math.e ** (-self.iter * self.T_decay)
                 
             # log some interesting variables
             self.positions[self.iter,:] = self.test_position
@@ -646,6 +661,7 @@ class MCMCOpts(object):
         self.sigma_step         = 0.125
         self.thermo_temp        = 1
         self.seed               = None
+        self.accept_window      = 300
 
     def copy(self):
         new_options = MCMCOpts()
