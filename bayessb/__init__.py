@@ -381,20 +381,28 @@ class MCMC(object):
                 or self.hessian is None:
             # normalize to obtain a vector sampled uniformly on the unit
             # hypersphere
-            step /= math.sqrt(step.dot(step))
+            #step /= math.sqrt(step.dot(step))
             # scale by norm_step_size and sig_value.
-            step *= self.options.norm_step_size * self.sig_value
+            #step *= self.options.norm_step_size * self.sig_value
+            # FIXME FIXME
+            step = step * self.builder.parameter_variances
         else:
             # FIXME make the 0.25 a user option
             # FIXME call eig() only when hessian changes and store results
-            eig_val, eig_vec = np.linalg.eig(self.hessian)
+            #eig_val, eig_vec = np.linalg.eig(self.hessian)
             # clamp eigenvalues to a lower bound of 0.25
-            adj_eig_val = np.maximum(abs(eig_val), 0.25)
+            #adj_eig_val = np.maximum(abs(eig_val), 0.25)
             # transform into eigenspace, with length scaled by the inverse
             # square root of the eigenvalues. length is furthermore scaled down
             # by a constant factor.
-            step = (eig_vec / adj_eig_val ** 0.5).dot(step) \
-                * self.options.hessian_scale
+            #step = (eig_vec / adj_eig_val ** 0.5).dot(step) \
+            #    * self.options.hessian_scale
+            s = (2.38**2) / self.num_estimate
+            eps = 0.001
+            step = np.random.multivariate_normal(
+                    np.zeros(self.num_estimate),
+                    (self.hessian * s) + (np.eye(self.num_estimate) * s * eps))
+
         # the proposed position is our most recent accepted position plus the
         # step we just calculated
         return self.position + step
@@ -449,8 +457,15 @@ class MCMC(object):
         return posterior, prior, likelihood
 
     def calculate_inverse_covariance(self):
-        covariance_matrix = np.cov(self.positions[self.accepts], rowvar=0)
-        return np.linalg.inv(covariance_matrix)
+        #start = self.iter - self.options.hessian_period
+        #end = self.iter
+        #recent_positions = self.positions[start:end]
+        #recent_accepts = self.accepts[start:end]
+        #covariance_matrix = np.cov(recent_positions[recent_accepts], rowvar=0)
+        #covariance_matrix = np.cov(self.positions[self.accepts], rowvar=0)
+        covariance_matrix = np.cov(self.positions, rowvar=0)
+        #return np.linalg.inv(covariance_matrix)
+        return covariance_matrix
 
     def calculate_hessian(self, position=None):
         """Calculate the hessian of the posterior landscape.
