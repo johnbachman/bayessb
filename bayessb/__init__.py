@@ -252,8 +252,8 @@ class MCMC(object):
                 and self.iter >= self.options.anneal_length
                 and self.iter % self.options.hessian_period == 0):
                 try:
-                    self.hessian = self.calculate_hessian()
-                    #self.hessian = self.calculate_inverse_covariance()
+                    #self.hessian = self.calculate_hessian()
+                    self.hessian = self.calculate_inverse_covariance()
                     hessian_num = ((self.iter - self.options.anneal_length)
                                    // self.options.hessian_period)
                     self.hessians[hessian_num,:,:] = self.hessian;
@@ -449,7 +449,7 @@ class MCMC(object):
         return posterior, prior, likelihood
 
     def calculate_inverse_covariance(self):
-        covariance_matrix = np.cov(self.positions, rowvar=0)
+        covariance_matrix = np.cov(self.positions[self.accepts], rowvar=0)
         return np.linalg.inv(covariance_matrix)
 
     def calculate_hessian(self, position=None):
