@@ -381,7 +381,7 @@ class MCMC(object):
                 or self.hessian is None:
             # normalize to obtain a vector sampled uniformly on the unit
             # hypersphere
-            step /= math.sqrt(step.dot(step))
+            #step /= math.sqrt(step.dot(step))
             # scale by norm_step_size and sig_value.
             step *= self.options.norm_step_size * self.sig_value
         else:
