@@ -1,215 +1,176 @@
 from bayessb import MCMC, MCMCOpts
-import collections
 import numpy as np
-from pylab import *
-from scipy.stats import norm
-from scipy.special import gamma
+import math
 
-class PT_MCMC(MCMC):
+class PT_MCMC(object):
+    """Implementation of parallel tempering algorithm.
 
-    def __init__(self, opts, num_chains):
-        max_temp = -6
-        min_temp = 0
-        self.swap_period = 20
+    See Geyer, "Maximum likelihood Markov Chain Monte Carlo", 1991.
+
+    In this algorithm, a series of chains are run at different temperatures in
+    parallel. They execute normally (following the Metropolis algorithm) for n
+    steps (defined by the parameter ``swap_period``) and then a swap is
+    proposed between two chains that neighbor each other in temperature.  If it
+    is accepted, each chain adopts the position of the other. Since the swap is
+    symmetric, detailed balance and ergodicity is maintained (when one
+    considers that the parameter space is now the Cartesian product of the
+    parameter spaces for all chains).
+
+    In this implementation, a :py:class:`PT_MCMC` object is used to contain all
+    of the chains (as instances of :py:class:`bayessb.MCMC`) and manage their
+    execution, performing swaps when appropriate.
+
+    Temperatures are given as minimum and maximum values; the intermediate
+    values are interpolated on a log scale. So if ``min_temp`` is 1, and
+    ``max_temp`` is 100, with three temperatures, the temperatures used are 1,
+    10, 100.
+
+    Parameters
+    ----------
+    opts: bayessb.MCMCOpts
+        Used to initialize all of the :py:class:`bayessb.MCMC` chains in the
+        temperature series.
+    num_chain : int
+        The number of chains/temperatures to run. Too many temperatures will
+        make swapping inefficient; too few temperatures will make swaps
+        unlikely to be accepted.
+    max_temp : number
+        The highest temperature in the series.
+    min_temp : number
+        The lowest temperature in the series. Should usually be 1 (the default).
+    swap_period : int
+        Number of steps of "regular" (Metropolis) MCMC to perform for each
+        chain before proposing a swap.
+    """
+
+    def __init__(self, opts, num_chains, max_temp, min_temp=1, swap_period=20):
+        self.options = opts
+        self.max_temp = max_temp
+        self.min_temp = min_temp
+        self.swap_period = swap_period
+
         self.chains = []
-        temps = np.logspace(-6, 0, num_chains)
-
+        self.iter = 0
+        # Calculate the temperature series
+        temps = np.logspace(np.log10(min_temp), np.log10(max_temp),
+                                           num_chains)
+        # Initialize each of the chains
         for i, temp in enumerate(temps):
             chain = MCMC(opts)
-            chain.options.thermo_temp = temp
+            chain.options.T_init = temp
+            chain.initialize()
+            chain.iter = chain.start_iter
             self.chains.append(chain)
 
-
+        # Initialize arrays for storing swap info
+        num_swaps = self.options.nsteps / swap_period
+        self.swap_proposals = np.zeros((num_swaps, 2))
+        self.x_i = np.zeros((num_swaps, len(self.options.estimate_params)))
+        self.x_j = np.zeros((num_swaps, len(self.options.estimate_params)))
+        self.pi_xi = np.zeros(num_swaps)
+        self.pi_xj = np.zeros(num_swaps)
+        self.pj_xi = np.zeros(num_swaps)
+        self.pj_xj = np.zeros(num_swaps)
+        self.r = np.zeros(num_swaps)
+        self.swap_alphas = np.zeros(num_swaps)
+        self.swap_accepts = np.zeros(num_swaps, dtype=bool)
+        self.swap_rejects = np.zeros(num_swaps, dtype=bool)
+        self.swap_iter = 0
 
     def estimate(self):
         """Parallel tempering MCMC algorithm (see Geyer, 1991)."""
+
         while self.iter < self.options.nsteps:
+            # Perform Metropolis step for each chain
+            for chain in self.chains:
+                # Get a new position
+                chain.test_position = chain.generate_new_position()
+                # Choose test position and calculate posterior there
+                (chain.test_posterior, chain.test_prior, chain.test_likelihood)\
+                        = chain.calculate_posterior(chain.test_position)
 
-            # perform update for each chain
-            for chain in chains:
-                generate_new_position(chain)
-                check_acceptance()
-                update()
+                # -- METROPOLIS ALGORITHM --
+                # Decide whether to accept the step
+                delta_posterior = chain.test_posterior - chain.accept_posterior
+                if delta_posterior < 0:
+                    chain.accept_move()
+                else:
+                    alpha = chain.random.rand()
+                    chain.alphas[chain.iter] = alpha;  # log the alpha value
+                    if math.e ** (-delta_posterior/chain.T) > alpha:
+                        chain.accept_move()
+                    else:
+                        chain.reject_move()
 
-            if self.iter % swap_period == 0:
-                # attempt to swap two of the chains
-                # pick i, j randomly from len(chains)
-                # Calculate odds ratio:
-                x_i = chain_i.position
-                x_j = chain_j.position
-                pi_xi = chain_i.posterior
-                pj_xj = chain_j.posterior
-                #(,,pi_xj) = chain_i.calculate_posterior(position=x_j)
-                #(,,pj_xi) = chain_j.calculate_posterior(position=x_i)
-                #r = (pi_xj * pj_xi)/(pi_xi * pj_xi)
+                # Log some interesting variables
+                chain.positions[chain.iter,:] = chain.test_position
+                chain.priors[chain.iter] = chain.test_prior
+                chain.likelihoods[chain.iter] = chain.test_likelihood
+                chain.posteriors[chain.iter] = chain.test_posterior
+                chain.delta_posteriors[chain.iter] = delta_posterior
+                chain.sigmas[chain.iter] = chain.sig_value
+                chain.ts[chain.iter] = chain.T
 
-                # Draw another random number, alpha
-                # check if alpha < r
-                # if yes, accept
-                # otherwise, reject
+                chain.iter += 1
 
-            # choose test position and calculate posterior there
-            self.test_position = self.generate_new_position()
-            (self.test_posterior, self.test_prior, self.test_likelihood) = \
-                self.calculate_posterior(self.test_position)
+            # Call user-callback step function on the first chain in the series
+            # to track execution
+            if self.chains[0].options.step_fn:
+                self.chains[0].options.step_fn(self.chains[0])
 
-Parameter = collections.namedtuple('Parameter', 'name value')
+            # Check if it's time to propose a swap
+            if self.iter >= self.swap_period and \
+               self.iter % self.swap_period == 0:
+                self.propose_swap()
 
-def step(mcmc):
-    """Useful step function."""
-    if mcmc.iter % 200 == 0:
-        print 'iter=%-5d  sigma=%-.3f  T=%-.3f ' \
-              'glob_acc=%-.3f  lkl=%g  prior=%g  post=%g' % \
-              (mcmc.iter, mcmc.sig_value, mcmc.T,
-               mcmc.acceptance/(mcmc.iter+1.), mcmc.accept_likelihood,
-               mcmc.accept_prior, mcmc.accept_posterior)
+            self.iter += 1
 
-class GaussianFit():
-    """Dummy model for fitting multivariate gaussians."""
-    def __init__(self, means, variances):
-        if len(means) != len(variances):
-            raise Exception("Mismatch between means and variances")
-        num_dimensions = len(means)
-        self.means = means
-        self.variances = variances
-        self.parameters = []
-        for i in range(num_dimensions):
-            #self.norm = norm(loc=means[i], scale=sqrt(variances[i]))
-            self.parameters.append(Parameter('p%d' % i, means[i]))
+    def propose_swap(self):
+        """Performs the temperature-swapping step of the PT algorithm."""
+        # Idea is to pick two neighboring chains to swap, so we
+        # randomly pick the one with the lower index
+        i = np.random.randint(len(self.chains)-1)
+        j = i+1
+        # Calculate odds ratio:
+        chain_i = self.chains[i]
+        chain_j = self.chains[j]
+        x_i = chain_i.position
+        x_j = chain_j.position
+        pi_xi = chain_i.accept_posterior
+        pj_xj = chain_j.accept_posterior
+        (pi_xj, a, b) = chain_i.calculate_posterior(position=x_j)
+        (pj_xi, a, b) = chain_j.calculate_posterior(position=x_i)
+        # Since calculations are in logspace, the ratio becomes a difference
+        r = (pi_xj + pj_xi) - (pi_xi + pj_xi)
 
-    def likelihood(self, mcmc, position):
-        return np.sum(((position - self.means)**2) / (2 * self.variances))
-        #return self.norm.pdf(position[0])
+        # Decide whether to accept the swap: similar to Metropolis
+        if r < 0:
+            self.accept_swap(i, j, x_i, x_j)
+        else:
+            swap_alpha = self.chains[0].random.rand()
+            self.swap_alphas[self.swap_iter] = swap_alpha
 
-class Beta_Fit():
-    """Dummy model for fitting a beta distribution."""
-    def __init__(self, alpha, beta):
-        self.parameters = [Parameter('p', 0)]
-        self.a = alpha
-        self.b = beta
+            if math.e ** (-r) > swap_alpha:
+                self.accept_swap(i, j, x_i, x_j)
+            else:
+                self.swap_rejects[self.swap_iter] = 1
 
-    def likelihood(self, mcmc, position):
-        #beta.pdf(x, a, b) = gamma(a+b)/(gamma(a)*gamma(b)) * x**(a-1) *
-        #(1-x)**(b-1),
-        const = gamma(self.a + self.b) / (gamma(self.a)*gamma(self.b))
-        return const * (x ** (self.a - 1)) * ((1 - x)**(self.b - 1))
+        # Log interesting variables
+        self.swap_proposals[self.swap_iter,:] = (i, j)
+        self.x_i[self.swap_iter] = x_i
+        self.x_j[self.swap_iter] = x_j
+        self.pi_xi[self.swap_iter] = pi_xi
+        self.pi_xj[self.swap_iter] = pi_xj
+        self.pj_xi[self.swap_iter] = pj_xi
+        self.pj_xj[self.swap_iter] = pj_xj
+        self.r[self.swap_iter] = r
 
-def test_gaussian_class():
-    means = np.random.rand(5)
-    variances = np.random.rand(5)
-    g = GaussianFit(means, variances)
-    # check that the model has parameters and each param has value attribute
-    for p in g.parameters:
-        a = p.value
-    assert True
+        # Increment the swap count
+        self.swap_iter += 1
 
-def test_gaussian_likelihood():
-    num_dimensions = 5
-    means = np.random.rand(num_dimensions)
-    variances = np.random.rand(num_dimensions)
-    g = GaussianFit(means, variances)
-    print g.likelihood(None, np.ones(num_dimensions))
-    assert True
+    def accept_swap(self, i, j, x_i, x_j):
+        self.chains[i].position = x_j
+        self.chains[j].position = x_i
+        self.swap_accepts[self.swap_iter] = 1
 
-def test_fit_gaussian():
-    num_dimensions = 1
-    # Create the dummy model
-    means = 10 ** np.random.rand(num_dimensions)
-    variances = np.random.rand(num_dimensions)
-    g = GaussianFit(means, variances)
-
-    # Create the options
-    nsteps = 20000
-    opts = MCMCOpts()
-    opts.model = g
-    opts.estimate_params = g.parameters
-    opts.initial_values = np.ones(num_dimensions)
-    opts.nsteps = nsteps
-    opts.anneal_length = nsteps/10
-    opts.T_init = 1
-    opts.use_hessian = False
-    opts.seed = 1
-    opts.norm_step_size = 1
-    opts.likelihood_fn = g.likelihood
-    opts.step_fn = step
-
-    # Create the PT object
-    mcmc = MCMC(opts)
-    mcmc.initialize()
-    mcmc.estimate()
-    mcmc.prune(nsteps/10, 100)
-
-    #mixed_positions = mcmc.positions[nsteps/10:]
-    #mixed_accepts = mixed_positions[mcmc.accepts[nsteps/10:]]
-    ion()
-    for i in range(mcmc.num_estimate):
-        #mean_i = np.mean(mixed_accepts[:, i])
-        #var_i = np.var(mixed_accepts[:, i])
-        mean_i = np.mean(mcmc.positions[:,i])
-        var_i = np.var(mcmc.positions[:, i])
-        print "True mean: %f" % means[i]
-        print "Sampled mean: %f" % mean_i
-        print "True variance: %f" % variances[i]
-        print "Sampled variance: %f" % var_i
-        figure()
-        (heights, points, lines) = hist(mcmc.positions[:,i], bins=50, normed=True)
-        plot(points, norm.pdf(points, loc=means[i], scale=sqrt(variances[i])), 'r')
-
-    import ipdb; ipdb.set_trace()
-    mean_err = np.zeros(len(mcmc.positions))
-    var_err = np.zeros(len(mcmc.positions))
-    for i in range(len(mcmc.positions)):
-        mean_err[i] = (means[0] - np.mean(mcmc.positions[:i+1,0]))
-        var_err[i] = (variances[0] - np.var(mcmc.positions[:i+1,0]))
-    figure()
-    plot(mean_err)
-    plot(var_err)
-
-    import ipdb; ipdb.set_trace()
-    return mcmc
-
-def fit_beta():
-    num_dimensions = 1
-    # Create the dummy model
-    means = 10 ** np.random.rand(num_dimensions)
-    variances = np.random.rand(num_dimensions)
-    g = GaussianFit(means, variances)
-
-    # Create the options
-    nsteps = 100000
-    opts = MCMCOpts()
-    opts.model = g
-    opts.estimate_params = g.parameters
-    opts.initial_values = np.ones(num_dimensions)
-    opts.nsteps = nsteps
-    opts.anneal_length = nsteps/10
-    opts.T_init = 1
-    opts.use_hessian = False
-    opts.seed = 1
-    opts.norm_step_size = 2
-    opts.likelihood_fn = g.likelihood
-    opts.step_fn = step
-
-    # Create the PT object
-    num_temps = 13
-    mcmc = MCMC(opts)
-    mcmc.initialize()
-    mcmc.estimate()
-    #pt = PT_MCMC(opts, num_temps)
-
-    mixed_positions = mcmc.positions[nsteps/10:]
-    mixed_accepts = mixed_positions[mcmc.accepts[nsteps/10:]]
-    ion()
-    for i in range(mcmc.num_estimate):
-        mean_i = np.mean(mixed_accepts[:, i])
-        var_i = np.var(mixed_accepts[:, i])
-        print "True mean: %f" % means[i]
-        print "Sampled mean: %f" % mean_i
-        print "True variance: %f" % variances[i]
-        print "Sampled variance: %f" % var_i
-        figure()
-        (heights, points, lines) = hist(mixed_accepts[:, i], bins=200, normed=True)
-        plot(points, norm.pdf(points, loc=means[i], scale=sqrt(variances[i])), 'r')
-    import ipdb; ipdb.set_trace()
-    return mcmc
 
