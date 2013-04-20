@@ -167,6 +167,42 @@ def fit_beta(nsteps):
         plt.plot(points, beta.pdf(points, b.a, b.b), 'r')
     return mcmc
 
+def fit_beta_by_pt(nsteps):
+    """Fit a beta distribution by parallel tempering."""
+    num_dimensions = 1
+    # Create the dummy model
+    b = BetaFit(0.5, 0.5)
+
+    # Create the options
+    opts = MCMCOpts()
+    opts.model = b
+    opts.estimate_params = b.parameters
+    opts.initial_values = [10 ** 0.5]
+    opts.nsteps = nsteps
+    opts.anneal_length = 0
+    opts.T_init = 1
+    opts.use_hessian = False
+    opts.seed = 1
+    opts.norm_step_size = 0.01
+    opts.likelihood_fn = b.likelihood
+    opts.step_fn = step
+
+    # Create the MCMC object
+    num_temps = 10
+    pt = PT_MCMC(opts, num_temps, 10)
+    pt.estimate()
+
+    plt.ion()
+    for chain in pt.chains:
+        fig = plt.figure()
+        chain.prune(nsteps/10, 1)
+        (heights, points, lines) = plt.hist(chain.positions, bins=100,
+                                            normed=True)
+        plt.plot(points, beta.pdf(points, b.a, b.b), 'r')
+        plt.ylim((0,10))
+        plt.xlim((0, 1))
+    return pt
+
 def fit_twod_gaussians(nsteps):
     means_x = [ 0.1, 0.5, 0.9,
                 0.1, 0.5, 0.9,
@@ -274,12 +310,14 @@ def test_GaussianFit_likelihood():
     g = GaussianFit(means, variances)
     assert True
 
-
 def test_fit_gaussian():
     mcmc = fit_gaussian(1000)
 
 def test_fit_beta():
     mcmc = fit_beta(1000)
+
+def test_fit_beta_by_pt():
+    mcmc = fit_beta_by_pt(1000)
 
 def test_fit_twod_gaussians():
     mcmc = fit_twod_gaussians(1000)
