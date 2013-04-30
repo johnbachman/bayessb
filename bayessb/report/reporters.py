@@ -74,7 +74,7 @@ def convergence_criterion(mcmc_set):
         color = cm.jet(i/float(num_estimate - 1))
         label = 's%d' % chain.options.seed
         if chain.pruned:
-            line = ax.plot(chain.thinned_accept_steps, chain.posteriors, color=color,
+            line = ax.plot(chain.thinned_steps, chain.posteriors, color=color,
                     label=label)
         else:
             line = ax.plot(chain.posteriors, color=color, label=label)
@@ -94,7 +94,7 @@ def convergence_criterion(mcmc_set):
             color = cm.jet(j/float(num_estimate - 1))
             label = 's%d' % chain.options.seed
             if chain.pruned:
-                line = ax.plot(chain.thinned_accept_steps, chain.positions[:,i],
+                line = ax.plot(chain.thinned_steps, chain.positions[:,i],
                                color=color, label=label)
             else:
                 line = ax.plot(chain.positions[:, i], color=color, label=label)

@@ -183,7 +183,7 @@ def fit_beta_by_pt(nsteps):
     opts.T_init = 1
     opts.use_hessian = False
     opts.seed = 1
-    opts.norm_step_size = 0.01
+    opts.norm_step_size = 0.5
     opts.likelihood_fn = b.likelihood
     opts.step_fn = step
 

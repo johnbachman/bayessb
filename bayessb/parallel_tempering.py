@@ -77,7 +77,7 @@ class PT_MCMC(object):
         """The posterior of chain j at the position of i."""
         self.pj_xj = np.zeros(num_swaps)
         """The posterior of chain j at the position of j."""
-        self.delta_posteriors = np.zeros(num_swaps)
+        self.delta_test_posteriors = np.zeros(num_swaps)
         """The posterior probability ratio for swap/noswap."""
         self.swap_alphas = np.zeros(num_swaps)
         """The random number used to accept/reject the swap."""
@@ -90,7 +90,6 @@ class PT_MCMC(object):
 
     def estimate(self):
         """Parallel tempering MCMC algorithm (see Geyer, 1991)."""
-
         while self.iter < self.options.nsteps:
             # Check if it's time to propose a swap
             swap_index = None
@@ -110,8 +109,8 @@ class PT_MCMC(object):
 
             # Call user-callback step function on the first chain in the series
             # to track execution
-            if self.chains[0].options.step_fn:
-                self.chains[0].options.step_fn(self.chains[0])
+            if self.chains[-1].options.step_fn:
+                self.chains[-1].options.step_fn(self.chains[-1])
 
             self.iter += 1
 
@@ -160,17 +159,18 @@ class PT_MCMC(object):
                 self.accept_swap(i, j)
             # Reject the swap
             else:
+                #print "Reject %d, %d" % (i, j)
                 self.swap_rejects[self.swap_iter] = 1
                 chain_i.reject_move()
                 chain_j.reject_move()
 
         # Log some interesting variables
         for chain in (chain_i, chain_j):
-            chain.positions[chain.iter,:] = chain.test_position
-            chain.priors[chain.iter] = chain.test_prior
-            chain.likelihoods[chain.iter] = chain.test_likelihood
-            chain.posteriors[chain.iter] = chain.test_posterior
-            chain.delta_posteriors[chain.iter] = delta_posterior
+            chain.positions[chain.iter,:] = chain.position #chain.test_position
+            chain.priors[chain.iter] = chain.accept_prior
+            chain.likelihoods[chain.iter] = chain.accept_likelihood
+            chain.posteriors[chain.iter] = chain.accept_posterior
+            chain.delta_test_posteriors[chain.iter] = delta_posterior
             chain.sigmas[chain.iter] = chain.sig_value
             chain.ts[chain.iter] = chain.T
 
@@ -182,7 +182,7 @@ class PT_MCMC(object):
         self.pi_xj[self.swap_iter] = pi_xj
         self.pj_xi[self.swap_iter] = pj_xi
         self.pj_xj[self.swap_iter] = pj_xj
-        self.delta_posteriors[self.swap_iter] = delta_posterior
+        self.delta_test_posteriors[self.swap_iter] = delta_posterior
 
         # Increment the swap count
         self.swap_iter += 1
@@ -193,6 +193,7 @@ class PT_MCMC(object):
 
     def accept_swap(self, i, j):
         """Do necessary bookkeeping for accepting the proposed swap."""
+        #print "Accept %d, %d" % (i, j)
         self.chains[i].accept_move()
         self.chains[j].accept_move()
         self.swap_accepts[self.swap_iter] = 1
@@ -218,11 +219,11 @@ class PT_MCMC(object):
                 chain.reject_move()
 
         # Log some interesting variables
-        chain.positions[chain.iter,:] = chain.test_position
-        chain.priors[chain.iter] = chain.test_prior
-        chain.likelihoods[chain.iter] = chain.test_likelihood
-        chain.posteriors[chain.iter] = chain.test_posterior
-        chain.delta_posteriors[chain.iter] = delta_posterior
+        chain.positions[chain.iter,:] = chain.position #chain.test_position
+        chain.priors[chain.iter] = chain.accept_prior
+        chain.likelihoods[chain.iter] = chain.accept_likelihood
+        chain.posteriors[chain.iter] = chain.accept_posterior
+        chain.delta_test_posteriors[chain.iter] = delta_posterior
         chain.sigmas[chain.iter] = chain.sig_value
         chain.ts[chain.iter] = chain.T
 

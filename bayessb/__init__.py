@@ -92,7 +92,7 @@ class MCMC(object):
     priors, likelihoods, posteriors : numpy.ndarray of float
         Trace of all priors, likelihoods, and posteriors corresponding to
         `positions`. Length is `nsteps`.
-    alphas, sigmas, delta_posteriors, ts : numpy.ndarray of float
+    alphas, sigmas, delta_test_posteriors, ts : numpy.ndarray of float
         Trace of various MCMC parameters and calculated values. Length is
         `nsteps`.
     accepts, rejects : numpy.ndarray of bool
@@ -217,7 +217,7 @@ class MCMC(object):
         self.sig_value = 1.0
         self.hessian = None
 
-        self.delta_posteriors = np.empty(self.options.nsteps)
+        self.delta_test_posteriors = np.empty(self.options.nsteps)
         self.ts = np.empty(self.options.nsteps)
         self.priors = np.empty(self.options.nsteps)
         self.likelihoods = np.empty(self.options.nsteps)
@@ -296,11 +296,11 @@ class MCMC(object):
                          math.e ** (-self.iter * self.T_decay)
 
             # log some interesting variables
-            self.positions[self.iter,:] = self.test_position
-            self.priors[self.iter] = self.test_prior
-            self.likelihoods[self.iter] = self.test_likelihood
-            self.posteriors[self.iter] = self.test_posterior
-            self.delta_posteriors[self.iter] = delta_posterior
+            self.positions[self.iter,:] = self.position
+            self.priors[self.iter] = self.accept_prior
+            self.likelihoods[self.iter] = self.accept_likelihood
+            self.posteriors[self.iter] = self.accept_posterior
+            self.delta_test_posteriors[self.iter] = delta_posterior
             self.sigmas[self.iter] = self.sig_value
             self.ts[self.iter] = self.T
 
@@ -510,54 +510,57 @@ class MCMC(object):
         return hessian
 
     def prune(self, burn, thin=1):
-        """Truncates the chain to the thinned, mixed, accepted positions.
+        """Truncates the chain to the thinned, mixed, positions.
 
-        Note that if the chain has already been pruned then this function does
-        nothing.
+        Note that this includes both the accepted and the rejected steps, as
+        this is essential for correct statistics.
+
+        Note also that if the chain has already been pruned then this function
+        does nothing.
 
         Side Effects:
 
             - After this method is called, self.positions is (destructively) set
-              to the mixed, accepted positions.
+              to the mixed, thinned positions.
             - The priors, likelihoods, and posteriors, sigmas, alphas, etc.
-              are modified to only record values for the mixed, accepted
+              are modified to only record values for the mixed, thinned
               positions.
             - The ``self.pruned`` field is set to True, indicating that the walk
               has been irreversibly pruned.
-            - The indices of the thinned, mixed, accepted steps are recorded in
-              the field ``self.thinned_accept_steps``. This can be useful for
+            - The indices of the thinned, mixed, steps are recorded in
+              the field ``self.thinned_steps``. This can be useful for
               plotting walks from multiple chains.
             - The values of the ``burn`` and ``thin`` parameters are recorded
               in the options object as ``self.options.burn`` and
               ``self.options.thin``.
         """
 
-        (thinned_accepts, thinned_accept_steps) = \
-                            self.get_mixed_accepts(burn, thin)
-        self.positions = thinned_accepts
+        (thinned_positions, thinned_steps) = \
+                self.get_thinned_mixed_steps(burn, thin)
+        self.positions = thinned_positions
         self.options.burn = burn
         self.options.thin = thin
         self.pruned = True
-        self.thinned_accept_steps = thinned_accept_steps
+        self.thinned_steps = thinned_steps
 
-        self.delta_posteriors = self.delta_posteriors[thinned_accept_steps]
-        self.ts = self.ts[thinned_accept_steps]
-        self.priors = self.priors[thinned_accept_steps]
-        self.likelihoods = self.likelihoods[thinned_accept_steps]
-        self.posteriors = self.posteriors[thinned_accept_steps]
+        self.delta_test_posteriors = self.delta_test_posteriors[thinned_steps]
+        self.ts = self.ts[thinned_steps]
+        self.priors = self.priors[thinned_steps]
+        self.likelihoods = self.likelihoods[thinned_steps]
+        self.posteriors = self.posteriors[thinned_steps]
 
-        self.alphas = self.alphas[thinned_accept_steps]
-        self.sigmas = self.sigmas[thinned_accept_steps]
-        self.accepts = self.accepts[thinned_accept_steps]
-        self.rejects = self.rejects[thinned_accept_steps]
+        self.alphas = self.alphas[thinned_steps]
+        self.sigmas = self.sigmas[thinned_steps]
+        self.accepts = self.accepts[thinned_steps]
+        self.rejects = self.rejects[thinned_steps]
 
-    def get_mixed_accepts(self, burn, thin=1):
-        """A helper function that returns the thinned,
-        accepted positions after a user-specified burn-in period; also returns
-        the indices (step numbers) of each of the returned positions.
+    def get_thinned_mixed_steps(self, burn, thin=1):
+        """A helper function that returns the thinned positions after a
+        user-specified burn-in period; also returns the indices (step numbers)
+        of each of the returned positions.
 
         Use this method instead of ``self.prune`` if you want to get the
-        mixed accepted steps without discarding all of the other ones.
+        mixed steps without discarding all of the other ones.
 
         Parameters
         ----------
@@ -565,28 +568,25 @@ class MCMC(object):
             An integer specifying the number of steps to cut off from the
             beginning of the walk.
         thin : int
-            An integer specifying how to thin the accepted steps of the walk.
-            If 1, returns every step; if 2, every other step; if 5, every
-            fifth step, etc.
+            An integer specifying how to thin the steps of the walk.  If 1,
+            returns every step; if 2, every other step; if 5, every fifth step,
+            etc.
 
         Returns
         -------
         A tuple of numpy.array objects. The first element in the tuple contains
-        the array of accepted positions, burned and thinned as required; the
-        second element contains a list of integers which indicate the indices
+        the array of positions, burned and thinned as required; the second
+        element contains a list of integers which indicate the indices
         associated with each of the steps returned.
         """
 
-        mixed_steps = np.array(range(burn, self.options.nsteps))    
+        mixed_steps = np.array(range(burn, self.options.nsteps))
         mixed_positions = self.positions[burn:]
 
-        mixed_accepts = mixed_positions[self.accepts[burn:]]
-        mixed_accept_steps = mixed_steps[self.accepts[burn:]]
+        thinned_steps = mixed_steps[::thin]
+        thinned_positions = mixed_positions[::thin]
 
-        thinned_accepts = mixed_accepts[::thin]
-        thinned_accept_steps = mixed_accept_steps[::thin]
-
-        return (thinned_accepts, thinned_accept_steps)
+        return (thinned_positions, thinned_steps)
 
 class HessianCalculationError(RuntimeError):
     pass
