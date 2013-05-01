@@ -281,7 +281,7 @@ def marginals(mcmc_set):
             if len(chain.positions) > 0:
                 chains_for_param.append(chain.positions[:,i])
         # Plot the marginals
-        ax.hist(chains_for_param, histtype='step')
+        ax.hist(chains_for_param, histtype='step', bins=25)
         ax.set_title("Parameter: %s" % param_name)
         plot_filename = '%s_marginal_%s.png' % (mcmc_set.name, param_name)
         canvas = FigureCanvasAgg(fig)
