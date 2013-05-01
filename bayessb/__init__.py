@@ -444,6 +444,9 @@ class MCMC(object):
 
         """
         prior = self.calculate_prior(position)
+        if prior == np.inf:
+            return np.inf, np.inf, np.inf
+
         likelihood = self.calculate_likelihood(position)
         posterior = prior + likelihood * self.options.thermo_temp
         return posterior, prior, likelihood
