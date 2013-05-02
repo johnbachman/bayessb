@@ -30,7 +30,7 @@ class PT_MCMC(object):
     opts: bayessb.MCMCOpts
         Used to initialize all of the :py:class:`bayessb.MCMC` chains in the
         temperature series.
-    num_chain : int
+    num_chains : int
         The number of chains/temperatures to run. Too many temperatures will
         make swapping inefficient; too few temperatures will make swaps
         unlikely to be accepted.
@@ -109,8 +109,8 @@ class PT_MCMC(object):
 
             # Call user-callback step function on the first chain in the series
             # to track execution
-            if self.chains[-1].options.step_fn:
-                self.chains[-1].options.step_fn(self.chains[-1])
+            if self.chains[0].options.step_fn:
+                self.chains[0].options.step_fn(self.chains[0])
 
             self.iter += 1
 

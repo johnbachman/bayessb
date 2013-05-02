@@ -1,31 +1,21 @@
-"""
-Example template for how to implement parallel tempering algorithm using MPI.
-
-Run with, e.g.::
-
-    mpiexec -np 5 python hello_mpi.py
-"""
-
-from mpi4py import MPI
 import numpy as np
 from StringIO import StringIO
-from bayessb.tests import TwoDGaussianFit
-from bayessb import MCMC, MCMCOpts
 import math
 import pickle
 
-# Define a useful step function that can handling logging
-
 class PT_MPI_Master(object):
-    def __init__(self, comm, options, swap_period, num_chains):
+    """Class documentation."""
+
+    def __init__(self, comm, rank, options, swap_period, num_chains):
         """Document me"""
         self.comm = comm
+        self.rank = rank
         self.options = options
         self.swap_period = swap_period
         self.num_chains = num_chains
         # Initialize log of execution
         self.log = StringIO()
-        self.log.write("rank = %d --------------------------\n" % rank)
+        self.log.write("rank = %d --------------------------\n" % self.rank)
         self.random = np.random.RandomState(options.seed)
 
     def run(self):
@@ -46,26 +36,27 @@ class PT_MPI_Master(object):
                             (target_id))
                     self.comm.send("continue", dest=target_id, tag=1)
         # We're done, so tell everyone to stop
-        for target_id in range(1, num_chains):
+        for target_id in range(1, self.num_chains):
             self.comm.send("stop", dest=target_id, tag=1)
         # Write the log
-        with open('pt_mpi_log_%d.log' % rank, 'w') as f:
+        with open('pt_mpi_log_%d.log' % self.rank, 'w') as f:
             f.write(self.log.getvalue())
 
 class PT_MPI_Worker(object):
-    def __init__(self, comm, options, swap_period):
+    """Class documentation."""
+
+    def __init__(self, comm, rank, chain, swap_period):
         """Document me"""
         self.comm = comm
+        self.rank = rank
         self.swap_period = swap_period
         # Set the step function
-        options.step_fn = self.step
-        # Initialize this chain
-        self.chain = MCMC(options)
-        self.chain.initialize()
+        self.chain = chain
+        self.chain.options.step_fn = self.step
         self.chain.iter = self.chain.start_iter
         # Initialize log of execution
         self.log = StringIO()
-        self.log.write("rank = %d --------------------------\n" % rank)
+        self.log.write("rank = %d --------------------------\n" % self.rank)
 
     def step(self, mcmc):
         """Useful step function."""
@@ -86,18 +77,19 @@ class PT_MPI_Worker(object):
             if swap_cmd == "continue":
                 # Run swap_period steps
                 self.log.write("Chain at rank %d (temp %g) running %d steps\n" %
-                        (rank, self.chain.options.T_init, self.swap_period))
+                      (self.rank, self.chain.options.T_init, self.swap_period))
                 self.chain.estimate_nsteps(self.swap_period)
             # Processes that are due to terminate:
             elif swap_cmd == "stop":
                 self.log.write("Chain at rank %d (temp %g) terminating\n" %
-                        (rank, self.chain.options.T_init))
+                        (self.rank, self.chain.options.T_init))
                 break
             # Processes that are due to swap:
             else:
                 # Run swap_period-1 steps...
                 self.log.write("Chain at rank %d (temp %g) running %d steps\n" %
-                        (rank, self.chain.options.T_init, self.swap_period - 1))
+                               (self.rank, self.chain.options.T_init,
+                                self.swap_period - 1))
                 self.chain.estimate_nsteps(self.swap_period - 1)
                 # ...then do a swap for the final step.
                 # Get the lower index of the pair to be swapped, which was sent
@@ -105,27 +97,27 @@ class PT_MPI_Worker(object):
                 i = int(swap_cmd)
                 # First, handle the case where we are the process with the lower
                 # index, and we will manage the swap
-                if rank == i:
+                if self.rank == i:
                     self.lower_swap(i)
                 # Now, handle the case where we are the higher index, and will
                 # participate in (but not manage) the swap
-                elif rank == i+1:
+                elif self.rank == i+1:
                     self.upper_swap(i)
         # -- end while loop (on stop command from master) --
         # Save the chain
-        with open('pt_mpi_chain_%d.mcmc' % rank, 'w') as f:
+        with open('pt_mpi_chain_%d.mcmc' % self.rank, 'w') as f:
             self.chain.options.likelihood_fn = None
             self.chain.options.prior_fn = None
             self.chain.options.step_fn = None
             pickle.dump(self.chain, f)
         # Write the log
-        with open('pt_mpi_log_%d.log' % rank, 'w') as f:
+        with open('pt_mpi_log_%d.log' % self.rank, 'w') as f:
             f.write(self.log.getvalue())
 
     def lower_swap(self, i):
         """Document me"""
         self.log.write("Chain at rank %d (temp %g) swapping with %d\n" %
-                (rank, self.chain.options.T_init, i+1))
+                (self.rank, self.chain.options.T_init, i+1))
         # 1. The j chain will need the i position to calculate the j
         #    test posterior, so send it over
         self.comm.send(self.chain.position, dest=i+1, tag=1)
@@ -169,7 +161,7 @@ class PT_MPI_Worker(object):
     def upper_swap(self, i):
         """Document me"""
         self.log.write("Chain at rank %d (temp %g) swapping with %d\n" %
-                (rank, self.chain.options.T_init, i))
+                (self.rank, self.chain.options.T_init, i))
         # 1. The j chain needs the i position to calculate the j
         # test posterior (pj_xi)
         self.chain.test_position = self.comm.recv(source=i, tag=1)
@@ -193,56 +185,5 @@ class PT_MPI_Worker(object):
             self.log.write("Swap rejected!\n")
             self.chain.reject_move()
         self.chain.iter += 1
-
-if __name__ == '__main__':
-    # The total number of MCMC steps to run
-    nsteps = 40000
-    # Frequency for proposing swaps
-    swap_period = 20
-    # Temperature range
-    min_temp = 1
-    max_temp = 100
-
-    # The communicator to use
-    comm = MPI.COMM_WORLD
-    # Number of chains/workers in the whole pool
-    num_chains = comm.Get_size()
-    # The rank of this chain (0 is the master, others are workers)
-    rank = comm.Get_rank()
-
-    # Set up the 2-D gaussian model
-    means_x = [ 0.1, 0.5, 0.9,
-                0.1, 0.5, 0.9,
-                0.1, 0.5, 0.9]
-    means_y = [0.1, 0.1, 0.1,
-               0.5, 0.5, 0.5,
-               0.9, 0.9, 0.9]
-    sd = 0.01
-    tdg = TwoDGaussianFit(means_x, means_y, sd ** 2)
-
-    # Create temperature array based on number of workers (excluding master)
-    temps = np.logspace(np.log10(min_temp), np.log10(max_temp), num_chains-1)
-
-    # Create the options
-    opts = MCMCOpts()
-    opts.model = tdg
-    opts.estimate_params = tdg.parameters
-    opts.initial_values = [1.001, 1.001]
-    opts.nsteps = nsteps
-    opts.anneal_length = 0 # necessary so cooling does not occur
-    opts.T_init = temps[rank - 1] # Use the temperature for this worker
-    opts.use_hessian = False
-    opts.seed = 1
-    opts.norm_step_size = 0.1
-    opts.likelihood_fn = tdg.likelihood
-
-    # The master coordinates when swaps occur ---------
-    if rank == 0:
-        pt = PT_MPI_Master(comm, opts, swap_period, num_chains)
-        pt.run()
-    # Everyone else runs MCMC steps and swaps when told -----------
-    else:
-        pt = PT_MPI_Worker(comm, opts, swap_period)
-        pt.run()
 
 
