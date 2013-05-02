@@ -113,7 +113,8 @@ class MCMC(object):
     def __getstate__(self):
         # clear solver since it causes problems with pickling
         state = self.__dict__.copy()
-        del state['solver']
+        if 'solver' in state:
+            del state['solver']
         return state
 
     def __setstate__(self, state):
@@ -191,16 +192,6 @@ class MCMC(object):
         if self.options.atol is not None:
             self.ode_options['atol'] = self.options.atol
 
-        # create solver so we can calculate the posterior
-        self.init_solver()
-
-        self.initial_posterior, self.initial_prior, self.initial_likelihood = \
-            self.calculate_posterior(self.initial_position)
-
-        self.accept_prior = self.initial_prior
-        self.accept_likelihood = self.initial_likelihood
-        self.accept_posterior = self.initial_posterior
-
         # If anneal_length is 0, self.T_decay is irrelevant/undefined
         if self.options.anneal_length != 0:
             self.T_decay = -math.log10(1e-6) / self.options.anneal_length;
@@ -233,6 +224,16 @@ class MCMC(object):
         # initialize to zeros so we can see where there were failures
         self.hessians = np.zeros((num_hessians,
                                   self.num_estimate, self.num_estimate))
+
+        # create solver so we can calculate the posterior
+        self.init_solver()
+
+        self.initial_posterior, self.initial_prior, self.initial_likelihood = \
+            self.calculate_posterior(self.initial_position)
+
+        self.accept_prior = self.initial_prior
+        self.accept_likelihood = self.initial_likelihood
+        self.accept_posterior = self.initial_posterior
 
     def init_solver(self):
         """Initialize solver from model and tspan."""
@@ -267,13 +268,13 @@ class MCMC(object):
                 self.calculate_posterior(self.test_position)
 
             # ------------------METROPOLIS-HASTINGS ALGORITHM-------------------
-            delta_posterior = self.test_posterior - self.accept_posterior
-            if delta_posterior < 0:
+            self.delta_posterior = self.test_posterior - self.accept_posterior
+            if self.delta_posterior < 0:
                 self.accept_move()
             else:
                 alpha = self.random.rand()
                 self.alphas[self.iter] = alpha;  # log the alpha value
-                if math.e ** (-delta_posterior/self.T) > alpha:
+                if math.e ** -self.delta_posterior > alpha:
                     self.accept_move()
                 else:
                     self.reject_move()
@@ -295,20 +296,81 @@ class MCMC(object):
                 self.T = 1 + (self.options.T_init - 1) * \
                          math.e ** (-self.iter * self.T_decay)
 
-            # log some interesting variables
-            self.positions[self.iter,:] = self.position
-            self.priors[self.iter] = self.accept_prior
-            self.likelihoods[self.iter] = self.accept_likelihood
-            self.posteriors[self.iter] = self.accept_posterior
-            self.delta_test_posteriors[self.iter] = delta_posterior
-            self.sigmas[self.iter] = self.sig_value
-            self.ts[self.iter] = self.T
-
             # call user-callback step function
             if self.options.step_fn:
                 self.options.step_fn(self)
 
             self.iter += 1
+
+    def estimate_nsteps(self, nsteps):
+        """Execute the MCMC parameter estimation algorithm for n steps."""
+        current_iter = 0
+        while current_iter < nsteps:
+
+            # update hessian
+            if (self.options.use_hessian
+                and self.iter >= self.options.anneal_length
+                and self.iter % self.options.hessian_period == 0):
+                try:
+                    self.hessian = self.calculate_hessian()
+                    #self.hessian = self.calculate_inverse_covariance()
+                    hessian_num = ((self.iter - self.options.anneal_length)
+                                   // self.options.hessian_period)
+                    self.hessians[hessian_num,:,:] = self.hessian;
+
+                except HessianCalculationError:
+                    pass
+
+            # choose test position and calculate posterior there
+            self.test_position = self.generate_new_position()
+            (self.test_posterior, self.test_prior, self.test_likelihood) = \
+                self.calculate_posterior(self.test_position)
+
+            # ------------------METROPOLIS-HASTINGS ALGORITHM-------------------
+            self.delta_posterior = self.test_posterior - self.accept_posterior
+            if self.delta_posterior < 0:
+                self.accept_move()
+            else:
+                alpha = self.random.rand()
+                self.alphas[self.iter] = alpha;  # log the alpha value
+                if math.e ** -self.delta_posterior > alpha:
+                    self.accept_move()
+                else:
+                    self.reject_move()
+
+            # -------ADJUSTING SIGMA & TEMPERATURE (ANNEALING)--------
+            # XXX why did I move this first bit outside the
+            # iter<anneal_length test (below)?
+            if self.iter % self.options.sigma_adj_interval == 0:
+                accept_rate = float(self.acceptance) / (self.iter + 1)
+
+                if accept_rate < self.options.accept_rate_target:
+                    if self.sig_value > self.options.sigma_min:
+                        self.sig_value -= self.options.sigma_step
+                else:
+                    if self.sig_value < self.options.sigma_max:
+                        self.sig_value += self.options.sigma_step
+
+            if self.iter < self.options.anneal_length:
+                self.T = 1 + (self.options.T_init - 1) * \
+                         math.e ** (-self.iter * self.T_decay)
+
+            # call user-callback step function
+            if self.options.step_fn:
+                self.options.step_fn(self)
+
+            current_iter += 1
+            self.iter += 1
+
+    def log_variables(self):
+        # log some interesting variables
+        self.positions[self.iter,:] = self.position
+        self.priors[self.iter] = self.accept_prior
+        self.likelihoods[self.iter] = self.accept_likelihood
+        self.posteriors[self.iter] = self.accept_posterior
+        self.delta_test_posteriors[self.iter] = self.delta_posterior
+        self.sigmas[self.iter] = self.sig_value
+        self.ts[self.iter] = self.T
 
     def accept_move(self):
         """Accept the current proposed move."""
@@ -318,10 +380,12 @@ class MCMC(object):
         self.position = self.test_position
         self.acceptance += 1
         self.accepts[self.iter] = 1
+        self.log_variables()
 
     def reject_move(self):
         """Reject the current proposed move."""
         self.rejects[self.iter] = 1;
+        self.log_variables()
 
     def simulate(self, position=None, observables=False):
         """Simulate the model.
@@ -448,7 +512,7 @@ class MCMC(object):
             return np.inf, np.inf, np.inf
 
         likelihood = self.calculate_likelihood(position)
-        posterior = prior + likelihood * self.options.thermo_temp
+        posterior = (prior + (likelihood * self.options.thermo_temp)) / self.T
         return posterior, prior, likelihood
 
     def calculate_inverse_covariance(self):

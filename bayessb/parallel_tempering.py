@@ -155,7 +155,7 @@ class PT_MCMC(object):
             swap_alpha = self.chains[0].random.rand()
             self.swap_alphas[self.swap_iter] = swap_alpha
             # Accept the swap
-            if math.e ** (-delta_posterior) > swap_alpha:
+            if math.e ** -delta_posterior > swap_alpha:
                 self.accept_swap(i, j)
             # Reject the swap
             else:
@@ -182,7 +182,7 @@ class PT_MCMC(object):
         self.pi_xj[self.swap_iter] = pi_xj
         self.pj_xi[self.swap_iter] = pj_xi
         self.pj_xj[self.swap_iter] = pj_xj
-        self.delta_test_posteriors[self.swap_iter] = delta_posterior
+        self.delta_test_posteriors[self.swap_iter] = chain.delta_posterior
 
         # Increment the swap count
         self.swap_iter += 1
@@ -207,13 +207,13 @@ class PT_MCMC(object):
                 = chain.calculate_posterior(chain.test_position)
 
         # Decide whether to accept the step
-        delta_posterior = chain.test_posterior - chain.accept_posterior
-        if delta_posterior < 0:
+        chain.delta_posterior = chain.test_posterior - chain.accept_posterior
+        if chain.delta_posterior < 0:
             chain.accept_move()
         else:
             alpha = chain.random.rand()
             chain.alphas[chain.iter] = alpha;  # log the alpha value
-            if math.e ** (-delta_posterior/chain.T) > alpha:
+            if math.e ** -chain.delta_posterior > alpha:
                 chain.accept_move()
             else:
                 chain.reject_move()
@@ -223,7 +223,7 @@ class PT_MCMC(object):
         chain.priors[chain.iter] = chain.accept_prior
         chain.likelihoods[chain.iter] = chain.accept_likelihood
         chain.posteriors[chain.iter] = chain.accept_posterior
-        chain.delta_test_posteriors[chain.iter] = delta_posterior
+        chain.delta_test_posteriors[chain.iter] = chain.delta_posterior
         chain.sigmas[chain.iter] = chain.sig_value
         chain.ts[chain.iter] = chain.T
 
