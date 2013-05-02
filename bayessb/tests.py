@@ -188,7 +188,7 @@ def fit_beta_by_pt(nsteps):
     opts.step_fn = step
 
     # Create the MCMC object
-    num_temps = 10
+    num_temps = 8
     pt = PT_MCMC(opts, num_temps, 10)
     pt.estimate()
 
@@ -270,7 +270,7 @@ def fit_twod_gaussians_by_pt(nsteps):
     opts.step_fn = step
 
     # Create the PT object
-    num_temps = 5
+    num_temps = 8
     pt = PT_MCMC(opts, num_temps, 100)
     pt.estimate()
 
