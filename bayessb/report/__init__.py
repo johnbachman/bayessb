@@ -2,7 +2,7 @@ from texttable import Texttable
 import TableFactory as tf
 from inspect import ismodule
 from bayessb.multichain import MCMCSet
-import pickle
+import cPickle
 import inspect
 import scipy.cluster.hierarchy
 from matplotlib import pyplot as plt
@@ -102,7 +102,7 @@ class Report(object):
         # Load the chain files
         mcmc_list = []
         for filename in chain_list:
-            mcmc_list.append(pickle.load(open(filename)))
+            mcmc_list.append(cPickle.load(open(filename)))
 
         # Prune and pool the chains in the list
         mcmc_set.initialize_and_pool(mcmc_list, self.burn)

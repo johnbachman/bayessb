@@ -60,9 +60,15 @@ class PT_MPI_Worker(object):
 
     def step(self, mcmc):
         """Useful step function."""
-        if mcmc.iter % 1 == 0:
+        if mcmc.iter % 10 == 0:
             self.log.write('iter=%-5d  sigma=%-.3f  T=%-.3f ' \
                   'glob_acc=%-.3f  lkl=%g  prior=%g  post=%g\n' % \
+                  (mcmc.iter, mcmc.sig_value, mcmc.T,
+                   mcmc.acceptance/(mcmc.iter+1.), mcmc.accept_likelihood,
+                   mcmc.accept_prior, mcmc.accept_posterior))
+        if mcmc.iter % 1000 == 0:
+            print('iter=%-5d  sigma=%-.3f  T=%-.3f ' \
+                  'glob_acc=%-.3f  lkl=%g  prior=%g  post=%g' % \
                   (mcmc.iter, mcmc.sig_value, mcmc.T,
                    mcmc.acceptance/(mcmc.iter+1.), mcmc.accept_likelihood,
                    mcmc.accept_prior, mcmc.accept_posterior))
@@ -105,13 +111,17 @@ class PT_MPI_Worker(object):
                     self.upper_swap(i)
         # -- end while loop (on stop command from master) --
         # Save the chain
-        with open('pt_mpi_chain_%d.mcmc' % self.rank, 'w') as f:
+        if has_attr(chain, 'get_basename'):
+            basename = chain.get_basename()
+        else:
+            basename = 'pt_mpi_chain_%d' % self.rank
+        with open(basename + '.mcmc', 'w') as f:
             self.chain.options.likelihood_fn = None
             self.chain.options.prior_fn = None
             self.chain.options.step_fn = None
             pickle.dump(self.chain, f)
         # Write the log
-        with open('pt_mpi_log_%d.log' % self.rank, 'w') as f:
+        with open(basename + '.log', 'w') as f:
             f.write(self.log.getvalue())
 
     def lower_swap(self, i):
