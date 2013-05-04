@@ -111,8 +111,8 @@ class PT_MPI_Worker(object):
                     self.upper_swap(i)
         # -- end while loop (on stop command from master) --
         # Save the chain
-        if has_attr(chain, 'get_basename'):
-            basename = chain.get_basename()
+        if hasattr(self.chain, 'get_basename'):
+            basename = self.chain.get_basename()
         else:
             basename = 'pt_mpi_chain_%d' % self.rank
         with open(basename + '.mcmc', 'w') as f:
