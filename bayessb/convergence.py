@@ -208,9 +208,15 @@ def convergence_criterion(mcmc_set):
     if len(mcmc_set.chains) <= 1:
         return None
 
+    # Build up the list of chains
+    # TODO Change all this to work with MCMCSet.chains
+    chain_set = []
+    for chain in mcmc_set.chains:
+        chain_set.append(np.copy(chain.positions))
+
     # Run the calculations on the chain set
-    W = within_chain_variances(mcmc_set.chains)
-    var = parameter_variance_estimates(mcmc_set.chains)
+    W = within_chain_variances(chain_set)
+    var = parameter_variance_estimates(chain_set)
 
     return np.sqrt(var / W)
 
