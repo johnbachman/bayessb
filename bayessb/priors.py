@@ -61,6 +61,6 @@ class Normal():
         """
         return ((num - self.mean)**2) / (2. * self.variance)
 
-    def random(self, num):
+    def random(self):
         """Get a random sample from the normal distribution."""
         return (self.variance * np.random.rand()) + self.mean
