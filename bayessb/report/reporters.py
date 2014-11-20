@@ -180,6 +180,7 @@ def show_fit_at_position(mcmc_set, fit_value, position, fit_name):
     fig = mcmc_set.chains[0].fit_plotting_function(position=position)
     img_filename = '%s_%s_plot.png' % (mcmc_set.name, fit_name)
     fig.savefig(img_filename)
+    fig.savefig(img_filename.replace('.png', '.pdf'))
     html_str += '<p><img src="%s" /></p>' % img_filename
 
     chain0 = mcmc_set.chains[0]
@@ -252,6 +253,7 @@ def sample_fits(mcmc_set):
     canvas = FigureCanvasAgg(fig)
     fig.set_canvas(canvas)
     fig.savefig(plot_filename)
+    fig.savefig(plot_filename.replace('.png', '.pdf'))
     fig.savefig(thumbnail_filename, dpi=10)
 
     return ThumbnailResult(thumbnail_filename, plot_filename)
