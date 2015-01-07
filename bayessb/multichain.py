@@ -114,8 +114,8 @@ class MCMCSet(object):
         for chain in chains:
             self.add_chain(chain)
 
-        self.prune_all_chains(burn, thin)
-        self.pool_chains()
+        #self.prune_all_chains(burn, thin)
+        #self.pool_chains()
 
     def maximum_likelihood(self):
         """Returns the maximum log likelihood (minimum negative log likelihood)
@@ -125,23 +125,14 @@ class MCMCSet(object):
         if not self.chains:
             raise Exception("There are no chains in the MCMCSet.")
 
-        max_likelihood = np.inf
+        max_likelihood = -np.inf
         max_likelihood_position = None
         for chain in self.chains:
-            # Make sure the chain is not empty!
-            if len(chain.likelihoods) > 0:
-                chain_max_likelihood_index = np.nanargmin(chain.likelihoods)
-                chain_max_likelihood = \
-                                chain.likelihoods[chain_max_likelihood_index]
-                if chain_max_likelihood < max_likelihood:
-                    max_likelihood = chain_max_likelihood
-                    max_likelihood_position = \
-                                chain.positions[chain_max_likelihood_index]
+            (chain_maxl, chain_maxl_params) = chain.get_maximum_likelihood()
+            if chain_maxl > max_likelihood:
+                max_likelihood = chain_maxl
+                max_likelihood_position = chain_maxl_params
 
-        # Check if there are no positions
-        if max_likelihood_position is None:
-            raise NoPositionsException('The maximum likelihood could not be '
-                        'determined because there are no accepted positions.')
         return (max_likelihood, max_likelihood_position)
 
     def maximum_posterior(self):
@@ -152,23 +143,13 @@ class MCMCSet(object):
         if not self.chains:
             raise Exception("There are no chains in the MCMCSet.")
 
-        max_posterior = np.inf
+        max_posterior = -np.inf
         max_posterior_position = None
         for chain in self.chains:
-            # Make sure the chain is not empty!
-            if len(chain.posteriors) > 0:
-                chain_max_posterior_index = np.nanargmin(chain.posteriors)
-                chain_max_posterior = \
-                                chain.posteriors[chain_max_posterior_index]
-                if chain_max_posterior < max_posterior:
-                    max_posterior = chain_max_posterior
-                    max_posterior_position = \
-                                chain.positions[chain_max_posterior_index]
-
-        # Check if there are no positions
-        if max_posterior_position is None:
-            raise NoPositionsException('The maximum posterior could not be determined '
-                                       'because there are no accepted positions.')
+            (chain_maxp, chain_maxp_params) = chain.get_maximum_posterior()
+            if chain_maxp > max_posterior:
+                max_posterior = chain_maxp
+                max_posterior_position = chain_maxp_params
 
         return (max_posterior, max_posterior_position)
 
