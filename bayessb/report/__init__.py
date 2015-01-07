@@ -104,12 +104,11 @@ class Report(object):
         mcmc_set = MCMCSet(chain_list_name)
 
         # Load the chain files
-        mcmc_list = []
-        for filename in chain_list:
-            mcmc_list.append(cPickle.load(open(filename)))
+        for chain in chain_list:
+            chain.load()
 
         # Prune and pool the chains in the list
-        mcmc_set.initialize_and_pool(mcmc_list, self.burn)
+        mcmc_set.initialize_and_pool(chain_list, self.burn)
 
         print "Running reporters for %s..." % chain_list_name
         result = []
