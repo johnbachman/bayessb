@@ -309,32 +309,24 @@ class Report(object):
                             "test.")
 
         # Get the maximum likelihood row from the results table
-        tBidBax_monotonic_results = None
+        mp_results = None
         for i, reporter in enumerate(self.reporters):
-            if reporter.func_name == "tBid_Bax_monotonically_increasing":
-                tBidBax_monotonic_results = self.results[i]
-        if tBidBax_monotonic_results is None:
+            if reporter.func_name == "maximum_posterior":
+                mp_results = self.results[i]
+        if mp_results is None:
             raise Exception("Couldn't find the row in the "
-                            "results table for the tBidBax monotonically "
-                            "increasing test.")
-
-        # Get the maximum likelihood row from the results table
-        iBax_monotonic_results = None
-        for i, reporter in enumerate(self.reporters):
-            if reporter.func_name == "iBax_monotonically_increasing":
-                iBax_monotonic_results = self.results[i]
-        if iBax_monotonic_results is None:
-            raise Exception("Couldn't find the row in the "
-                            "results table for the iBax monotonically "
-                            "increasing test.")
+                            "results table for the maximum posterior"
+                            "test.")
 
         total_ml = np.sum([r.value for r in ml_results])
+        total_mp = np.sum([r.value for r in mp_results])
+        raw_results = np.array([[r.value for r in ml_results],
+                                [r.value for r in mp_results]])
         combined_results = []
         # FIXME Need a better way of normalizing the max likelihood
-        #combined_results.append([r.value / total_ml for r in ml_results])
-        combined_results.append([np.log10(r.value/2) for r in ml_results])
-        combined_results.append([r.value for r in tBidBax_monotonic_results])
-        combined_results.append([r.value for r in iBax_monotonic_results])
+        combined_results.append([np.log10(r.value / total_ml) for r in ml_results])
+        combined_results.append([np.log10(r.value / total_mp) for r in mp_results])
+        #combined_results.append([np.log10(-r.value/2.) for r in ml_results])
         combined_results = np.array(combined_results)
 
         # Calculate distances between models based on tests
@@ -342,12 +334,24 @@ class Report(object):
         D1 = scipy.zeros([num_results, num_results])
         for i in range(num_results):
             for j in range(num_results):
+                #D1[i, j] = combined_results[i] - combined_results[j]
                 D1[i, j] = np.linalg.norm(combined_results[:,i] -
                                          combined_results[:,j])
 
+        ldend_left = 0.3
+        ldend_width = 0.3
+        tdend_left = ldend_left + ldend_width
+
+        tdend_bottom = 0.9
+        tdend_height = 0.05
+
+        dmx_width = 0.2
+        dmx_height = tdend_bottom - 0.1
+        ldend_bottom = tdend_bottom - dmx_height
+
         # Compute and plot first dendrogram
-        fig = plt.figure(figsize=(8,8))
-        ax1 = fig.add_axes([0.09, 0.1, 0.2, 0.6])
+        fig = plt.figure(figsize=(10,8))
+        ax1 = fig.add_axes([ldend_left, ldend_bottom, ldend_width, dmx_height])
         Y = scipy.cluster.hierarchy.linkage(D1, method='centroid')
         Z1 = scipy.cluster.hierarchy.dendrogram(Y, orientation='right',
                 labels=[n.split(' ')[0] + ' ' + n.split(' ')[2]
@@ -364,16 +368,14 @@ class Report(object):
                                           combined_results[j,:])
 
         # Compute and plot second dendrogram
-        ax2 = fig.add_axes([0.3, 0.71, 0.6, 0.2])
+        ax2 = fig.add_axes([tdend_left, tdend_bottom, dmx_width, tdend_height])
         Y = scipy.cluster.hierarchy.linkage(D2, method='centroid')
-        Z2 = scipy.cluster.hierarchy.dendrogram(Y,
-                labels=['Max likelihood', 'tBidBax monotonic',
-                        'iBax monotonic'])
+        Z2 = scipy.cluster.hierarchy.dendrogram(Y, labels=['Max lkl.', 'Max post.'])
         ax2.xaxis.tick_top()
         ax2.set_yticks([])
 
         # Plot distance matrix.
-        axmatrix = fig.add_axes([0.3,0.1,0.6,0.6])
+        axmatrix = fig.add_axes([tdend_left, ldend_bottom, dmx_width, dmx_height])
         idx1 = Z1['leaves']
         idx2 = Z2['leaves']
         D = np.zeros(combined_results.shape)
@@ -385,8 +387,26 @@ class Report(object):
         axmatrix.set_xticks([])
         axmatrix.set_yticks([])
 
+        #text portion
+        xmax = combined_results.shape[0]
+        ymax = combined_results.shape[1]
+        x, y = np.meshgrid(np.arange(xmax), np.arange(ymax))
+
+        for x_val, y_val in zip(x.flatten(), y.flatten()):
+            c = '%.2f' % raw_results[idx2[x_val], idx1[y_val]]
+            axmatrix.text(x_val, y_val, c, va='center', ha='center')
+
+        #set tick marks for grid
+        axmatrix.set_xticks(np.arange(-0.5, xmax - 0.5))
+        axmatrix.set_yticks(np.arange(-0.5, ymax - 0.5))
+        axmatrix.set_xticklabels([])
+        axmatrix.set_yticklabels([])
+        axmatrix.set_xlim(-0.5, xmax - 0.5)
+        axmatrix.set_ylim(-0.5, ymax - 0.5)
+        axmatrix.grid()
+
         # Plot colorbar.
-        axcolor = fig.add_axes([0.91,0.1,0.02,0.6])
+        axcolor = fig.add_axes([tdend_left + dmx_width + 0.05, ldend_bottom, 0.05, dmx_height])
         plt.colorbar(im, cax=axcolor)
         fig.show()
         fig.savefig('dendrogram.png')
