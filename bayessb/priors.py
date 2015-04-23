@@ -47,20 +47,54 @@ class Uniform():
         """Get a random sample from the uniform distribution."""
         return np.random.uniform(low=self.lower_bound, high=self.upper_bound)
 
-class Normal():
-    def __init__(self, mean, variance):
-        self.mean = float(mean)
-        self.variance = float(variance)
+class UniformLinear(Uniform):
+    """A uniform prior distribution that inverts a log10-transformation.
+
+    Parameters
+    ----------
+    lower_bound : number
+        The lower bound of the interval.
+    upper_bound : number
+        The upper bound of the interval.
+    """
+    def __init__(self, lower_bound, upper_bound):
+        self.lower_bound = 10 ** float(lower_bound)
+        self.upper_bound = 10 ** float(upper_bound)
+        self.p = 1. / (self.upper_bound - self.lower_bound)
 
     def pdf(self, num):
         """Returns the negative log probability of the given number.
 
         The negative log probability is given by:
 
-        (num - mean)^2 / (2 * variance)
+        infinity, if num is outside of the bounds of the interval;
+        -log(1 / (upper - lower)), otherwise.
         """
-        return ((num - self.mean)**2) / (2. * self.variance)
+        num = 10 ** num
+        if num < self.lower_bound or num > self.upper_bound:
+            return np.inf
+        else:
+            return -np.log(self.p)
+
+    def random(self):
+        rand_sample = np.random.uniform(low=self.lower_bound,
+                                        high=self.upper_bound)
+        return np.log10(rand_sample)
+
+class Normal():
+    def __init__(self, mean, stdev):
+        self.mean = float(mean)
+        self.stdev = float(stdev)
+
+    def pdf(self, num):
+        """Returns the negative log probability of the given number.
+
+        The negative log probability is given by:
+
+        (num - mean)^2 / (2 * stdev ** 2)
+        """
+        return ((num - self.mean)**2) / (2. * self.stdev ** 2)
 
     def random(self):
         """Get a random sample from the normal distribution."""
-        return (self.variance * np.random.rand()) + self.mean
+        return (self.stdev * np.random.randn()) + self.mean
